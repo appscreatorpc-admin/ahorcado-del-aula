@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ahorcado del Aula — Multijugador</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="board-wrap">
+
+  <!-- ============ PANTALLA: elegir rol ============ -->
+  <section id="screen-role">
+    <div class="board-header">
+      <div>
+        <h1>Ahorcado del Aula</h1>
+        <div class="subtitle">Modo equipos — con timbre y marcador en vivo</div>
+      </div>
+    </div>
+    <div class="role-grid">
+      <button type="button" class="role-card" id="btnPickHost">
+        <span class="emoji">🧑‍🏫</span>
+        <h2>Soy la maestra / el maestro</h2>
+        <p>Crea la sala, escribe la palabra y la pista de cada ronda, y controla el juego. Vas a proyectar esta pantalla.</p>
+      </button>
+      <button type="button" class="role-card" id="btnPickTeam">
+        <span class="emoji">🙋</span>
+        <h2>Somos un equipo</h2>
+        <p>Entra con el código de sala desde tu celular o computadora para tocar el timbre y responder.</p>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============ PANTALLA: crear sala (host) ============ -->
+  <section id="screen-host-setup" hidden>
+    <button type="button" class="back-link" data-back="role">← Regresar</button>
+    <div class="index-card">
+      <h2>Crear una sala nueva</h2>
+      <p class="hint-text">Se generará un código de 4 caracteres para que tus equipos se unan desde sus dispositivos.</p>
+      <label for="totalRounds">Número de rondas</label>
+      <input id="totalRounds" type="number" min="1" max="20" value="5">
+      <button type="button" class="chalk-btn primary" id="btnCreateRoom">Crear sala</button>
+      <p class="error-msg" id="hostSetupError" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- ============ PANTALLA: unirse (equipo) ============ -->
+  <section id="screen-team-join" hidden>
+    <button type="button" class="back-link" data-back="role">← Regresar</button>
+    <div class="index-card">
+      <h2>Unirse a una sala</h2>
+      <p class="hint-text">Pídele el código de 4 caracteres a tu maestra o maestro.</p>
+      <label for="joinCode">Código de sala</label>
+      <input id="joinCode" type="text" maxlength="4" autocomplete="off" style="text-transform:uppercase; letter-spacing:.15em; font-weight:800;" placeholder="AB3K">
+      <label for="joinTeamName">Nombre de tu equipo</label>
+      <input id="joinTeamName" type="text" maxlength="24" autocomplete="off" placeholder="Ej. Los Dinosaurios">
+      <button type="button" class="chalk-btn primary" id="btnJoinRoom">Entrar a la sala</button>
+      <p class="error-msg" id="teamJoinError" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- ============ PANTALLA: anfitrión — juego ============ -->
+  <section id="screen-host-play" hidden>
+    <div class="board-header">
+      <div>
+        <h1>Ahorcado del Aula</h1>
+        <div class="subtitle" id="hostSubtitle">Sala creada</div>
+      </div>
+      <div class="badge-row">
+        <span class="code-badge" id="hostCodeBadge">----</span>
+        <span class="round-badge" id="hostRoundBadge">Ronda 0 de 0</span>
+      </div>
+    </div>
+
+    <!-- Sub-panel: lobby (preparar la siguiente palabra) -->
+    <div id="hostPanelLobby" hidden>
+      <div class="index-card">
+        <h2 id="hostLobbyTitle">Prepara la ronda</h2>
+        <p class="hint-text">Comparte el código <strong id="hostLobbyCode">----</strong> con los equipos antes de empezar.</p>
+
+        <label for="hostWordInput">Palabra o frase secreta</label>
+        <div class="masked-field">
+          <input id="hostWordInput" type="password" autocomplete="off" spellcheck="false" placeholder="Ej. FOTOSÍNTESIS">
+          <button type="button" id="hostToggleMask" aria-label="Mostrar u ocultar la palabra">👁️</button>
+        </div>
+
+        <label for="hostHintInput">Pista para los equipos</label>
+        <input id="hostHintInput" type="text" autocomplete="off" placeholder="Ej. Proceso de las plantas">
+
+        <label for="hostDifficulty">Dificultad</label>
+        <select id="hostDifficulty">
+          <option value="8">Fácil — 8 intentos</option>
+          <option value="6" selected>Normal — 6 intentos</option>
+          <option value="4">Difícil — 4 intentos</option>
+        </select>
+
+        <button type="button" class="chalk-btn primary" id="btnStartRound">Comenzar ronda</button>
+        <p class="error-msg" id="hostRoundError" role="alert"></p>
+      </div>
+
+      <div class="scoreboard-col" style="max-width:440px; margin:22px auto 0;">
+        <h3>Equipos conectados</h3>
+        <ul class="team-list" id="hostLobbyTeamList"></ul>
+      </div>
+    </div>
+
+    <!-- Sub-panel: partida en curso -->
+    <div id="hostPanelPlaying" hidden>
+      <div class="game-grid">
+        <div class="gallows-col">
+          <svg class="hangman-svg" id="hostHangmanSvg" viewBox="0 0 200 220" role="img" aria-label="Dibujo del ahorcado"></svg>
+          <p class="attempts-left">Intentos restantes: <strong id="hostAttemptsLeft">6</strong></p>
+        </div>
+
+        <div class="word-col">
+          <div class="hint-note"><span id="hostHintText"></span></div>
+          <div id="hostWordDisplay" class="word-display"></div>
+          <div id="hostWrongLetters" class="wrong-letters"></div>
+          <div class="status-banner" id="hostStatusBanner">Esperando a que un equipo toque el timbre…</div>
+          <div>
+            <button type="button" class="chalk-btn ghost" id="btnReleaseBuzzer">Liberar timbre</button>
+            <button type="button" class="chalk-btn ghost danger" id="btnEndGameFromPlay">Terminar juego</button>
+          </div>
+        </div>
+
+        <div class="scoreboard-col">
+          <h3>Marcador</h3>
+          <ul class="team-list" id="hostPlayingTeamList"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-panel: fin de ronda -->
+    <div id="hostPanelRoundEnd" hidden>
+      <div class="round-end-card">
+        <p id="hostRoundEndMessage"></p>
+        <button type="button" class="chalk-btn primary wide" id="btnNextRound">Siguiente ronda</button>
+        <button type="button" class="chalk-btn ghost wide" id="btnEndGameFromRoundEnd">Terminar el juego aquí</button>
+      </div>
+      <div class="scoreboard-col" style="max-width:440px; margin:18px auto 0;">
+        <h3>Marcador</h3>
+        <ul class="team-list" id="hostRoundEndTeamList"></ul>
+      </div>
+    </div>
+
+    <!-- Sub-panel: fin del juego -->
+    <div id="hostPanelGameEnd" hidden>
+      <div class="final-card">
+        <p id="hostFinalMessage">¡Juego terminado!</p>
+        <ol class="podium" id="hostFinalPodium"></ol>
+        <button type="button" class="chalk-btn primary wide" data-back="role">Nueva partida</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PANTALLA: equipo — juego ============ -->
+  <section id="screen-team-play" hidden>
+    <div class="board-header">
+      <div>
+        <h1 id="teamNameHeader">Tu equipo</h1>
+        <div class="subtitle" id="teamSubtitle">Conectado a la sala</div>
+      </div>
+      <div class="badge-row">
+        <span class="code-badge" id="teamCodeBadge">----</span>
+        <span class="round-badge" id="teamRoundBadge">Ronda 0 de 0</span>
+      </div>
+    </div>
+
+    <!-- Sub-panel: lobby / esperando -->
+    <div id="teamPanelLobby" hidden>
+      <div class="status-banner" style="max-width:440px; margin:0 auto;">La maestra o el maestro está preparando la siguiente ronda…</div>
+      <div class="scoreboard-col" style="max-width:440px; margin:22px auto 0;">
+        <h3>Marcador</h3>
+        <ul class="team-list" id="teamLobbyTeamList"></ul>
+      </div>
+    </div>
+
+    <!-- Sub-panel: partida en curso -->
+    <div id="teamPanelPlaying" hidden>
+      <div class="word-col" style="max-width:480px; margin:0 auto;">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <svg class="hangman-svg" id="teamHangmanSvg" viewBox="0 0 200 220" role="img" aria-label="Dibujo del ahorcado" style="max-width:110px; flex:none;"></svg>
+          <div style="flex:1; min-width:0;">
+            <div class="hint-note"><span id="teamHintText"></span></div>
+            <p class="attempts-left" style="text-align:left; margin-top:8px;">Intentos restantes: <strong id="teamAttemptsLeft">6</strong></p>
+          </div>
+        </div>
+        <div id="teamWordDisplay" class="word-display"></div>
+        <div id="teamWrongLetters" class="wrong-letters"></div>
+        <div class="status-banner" id="teamStatusBanner">Esperando…</div>
+
+        <div class="buzzer-wrap">
+          <button type="button" class="buzzer-btn" id="btnBuzz">¡TIMBRE!</button>
+        </div>
+
+        <div id="teamAnswerArea" hidden>
+          <label style="display:block; font-size:.8rem; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--chalk-white-dim); margin-bottom:6px;">Elige una letra</label>
+          <div class="keyboard" id="teamKeyboard"></div>
+
+          <label style="display:block; font-size:.8rem; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--chalk-white-dim); margin:16px 0 6px;">…o arriesga la palabra completa</label>
+          <div class="word-guess-row">
+            <input type="text" id="teamWordGuessInput" placeholder="Escribe la palabra completa" autocomplete="off">
+            <button type="button" class="chalk-btn primary" id="btnGuessWord">Adivinar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="scoreboard-col" style="max-width:480px; margin:20px auto 0;">
+        <h3>Marcador</h3>
+        <ul class="team-list" id="teamPlayingTeamList"></ul>
+      </div>
+    </div>
+
+    <!-- Sub-panel: fin de ronda -->
+    <div id="teamPanelRoundEnd" hidden>
+      <div class="round-end-card">
+        <p id="teamRoundEndMessage"></p>
+        <p class="hint-text" style="text-align:center;">Esperando a que la maestra o el maestro empiece la siguiente ronda…</p>
+      </div>
+      <div class="scoreboard-col" style="max-width:440px; margin:18px auto 0;">
+        <h3>Marcador</h3>
+        <ul class="team-list" id="teamRoundEndTeamList"></ul>
+      </div>
+    </div>
+
+    <!-- Sub-panel: fin del juego -->
+    <div id="teamPanelGameEnd" hidden>
+      <div class="final-card">
+        <p id="teamFinalMessage">¡Juego terminado!</p>
+        <ol class="podium" id="teamFinalPodium"></ol>
+      </div>
+    </div>
+  </section>
+
+  <div class="tray">
+    <svg viewBox="0 0 56 12" aria-hidden="true">
+      <rect x="0" y="3" width="56" height="6" rx="2" fill="var(--wood-dark)" />
+      <rect x="4" y="0" width="20" height="6" rx="1.5" fill="var(--chalk-white)" opacity=".85" />
+      <rect x="30" y="1" width="14" height="5" rx="1.5" fill="var(--chalk-coral)" opacity=".8" />
+    </svg>
+    <span>Ahorcado del Aula — juega en cualquier navegador de tu red</span>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/client.js"></script>
+</body>
+</html>
