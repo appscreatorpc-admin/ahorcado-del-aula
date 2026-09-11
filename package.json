@@ -1,0 +1,17 @@
+{
+  "name": "ahorcado-del-aula-multijugador",
+  "version": "1.0.0",
+  "description": "Juego de ahorcado por equipos para el salon de clases, con timbre y marcador en vivo entre varios dispositivos.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
