@@ -23,12 +23,12 @@
       <button type="button" class="role-card" id="btnPickHost">
         <span class="emoji">🧑‍🏫</span>
         <h2>Soy la maestra / el maestro</h2>
-        <p>Crea la sala, escribe la palabra y la pista de cada ronda, y controla el juego. Vas a proyectar esta pantalla.</p>
+        <p>Prepara de una vez la palabra y la pista de cada ronda, crea la sala y controla el juego. Vas a proyectar esta pantalla.</p>
       </button>
       <button type="button" class="role-card" id="btnPickTeam">
         <span class="emoji">🙋</span>
         <h2>Somos un equipo</h2>
-        <p>Entra con el código de sala desde tu celular o computadora para tocar el timbre y responder.</p>
+        <p>Entra con el código de sala desde tu celular o computadora. Si varios de tu equipo entran con el mismo nombre, comparten el mismo marcador.</p>
       </button>
     </div>
   </section>
@@ -36,11 +36,15 @@
   <!-- ============ PANTALLA: crear sala (host) ============ -->
   <section id="screen-host-setup" hidden>
     <button type="button" class="back-link" data-back="role">← Regresar</button>
-    <div class="index-card">
-      <h2>Crear una sala nueva</h2>
-      <p class="hint-text">Se generará un código de 4 caracteres para que tus equipos se unan desde sus dispositivos.</p>
+    <div class="index-card index-card--wide">
+      <h2>Prepara tu partida</h2>
+      <p class="hint-text">Escribe de una vez la palabra y la pista de cada ronda. Nadie más que tú va a ver estas palabras hasta que empieces cada ronda — ni siquiera en el código de la página.</p>
+
       <label for="totalRounds">Número de rondas</label>
-      <input id="totalRounds" type="number" min="1" max="20" value="5">
+      <input id="totalRounds" type="number" min="1" max="20" value="3">
+
+      <div id="roundCardsContainer" class="round-cards"></div>
+
       <button type="button" class="chalk-btn primary" id="btnCreateRoom">Crear sala</button>
       <p class="error-msg" id="hostSetupError" role="alert"></p>
     </div>
@@ -51,7 +55,7 @@
     <button type="button" class="back-link" data-back="role">← Regresar</button>
     <div class="index-card">
       <h2>Unirse a una sala</h2>
-      <p class="hint-text">Pídele el código de 4 caracteres a tu maestra o maestro.</p>
+      <p class="hint-text">Pídele el código de 4 caracteres a tu maestra o maestro. Si ya hay un equipo con el mismo nombre, te unes a su marcador — úsalo si son compañeros del mismo equipo entrando desde celulares distintos.</p>
       <label for="joinCode">Código de sala</label>
       <input id="joinCode" type="text" maxlength="4" autocomplete="off" style="text-transform:uppercase; letter-spacing:.15em; font-weight:800;" placeholder="AB3K">
       <label for="joinTeamName">Nombre de tu equipo</label>
@@ -78,7 +82,7 @@
     <div id="hostPanelLobby" hidden>
       <div class="index-card">
         <h2 id="hostLobbyTitle">Prepara la ronda</h2>
-        <p class="hint-text">Comparte el código <strong id="hostLobbyCode">----</strong> con los equipos antes de empezar.</p>
+        <p class="hint-text">Comparte el código <strong id="hostLobbyCode">----</strong> con los equipos. Esta palabra ya la habías preparado — puedes editarla si quieres cambiarla.</p>
 
         <label for="hostWordInput">Palabra o frase secreta</label>
         <div class="masked-field">
@@ -92,7 +96,7 @@
         <label for="hostDifficulty">Dificultad</label>
         <select id="hostDifficulty">
           <option value="8">Fácil — 8 intentos</option>
-          <option value="6" selected>Normal — 6 intentos</option>
+          <option value="6">Normal — 6 intentos</option>
           <option value="4">Difícil — 4 intentos</option>
         </select>
 
@@ -119,8 +123,9 @@
           <div id="hostWordDisplay" class="word-display"></div>
           <div id="hostWrongLetters" class="wrong-letters"></div>
           <div class="status-banner" id="hostStatusBanner">Esperando a que un equipo toque el timbre…</div>
-          <div>
-            <button type="button" class="chalk-btn ghost" id="btnReleaseBuzzer">Liberar timbre</button>
+          <div class="host-buzzer-controls">
+            <button type="button" class="chalk-btn ghost" id="btnReleaseBuzzer">Liberar equipo actual</button>
+            <button type="button" class="chalk-btn ghost" id="btnToggleBuzzerGate">Cerrar timbre</button>
             <button type="button" class="chalk-btn ghost danger" id="btnEndGameFromPlay">Terminar juego</button>
           </div>
         </div>
@@ -150,7 +155,13 @@
       <div class="final-card">
         <p id="hostFinalMessage">¡Juego terminado!</p>
         <ol class="podium" id="hostFinalPodium"></ol>
-        <button type="button" class="chalk-btn primary wide" data-back="role">Nueva partida</button>
+      </div>
+      <div class="breakdown-col">
+        <h3>Desglose por ronda</h3>
+        <ol class="breakdown-list" id="hostBreakdownList"></ol>
+      </div>
+      <div style="text-align:center;">
+        <button type="button" class="chalk-btn primary wide" data-back="role" style="max-width:300px;">Nueva partida</button>
       </div>
     </div>
   </section>
@@ -193,9 +204,11 @@
 
         <div class="buzzer-wrap">
           <button type="button" class="buzzer-btn" id="btnBuzz">¡TIMBRE!</button>
+          <p class="helper-msg" id="buzzerGateMsg" hidden style="color:var(--chalk-coral); text-align:center;">El anfitrión cerró el timbre por ahora.</p>
         </div>
 
         <div id="teamAnswerArea" hidden>
+          <p class="helper-msg" style="text-align:center; margin-bottom:10px;">Mientras sigas acertando conservas el turno — solo lo pierdes si fallas.</p>
           <label style="display:block; font-size:.8rem; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--chalk-white-dim); margin-bottom:6px;">Elige una letra</label>
           <div class="keyboard" id="teamKeyboard"></div>
 
@@ -230,6 +243,10 @@
       <div class="final-card">
         <p id="teamFinalMessage">¡Juego terminado!</p>
         <ol class="podium" id="teamFinalPodium"></ol>
+      </div>
+      <div class="breakdown-col">
+        <h3>Desglose por ronda</h3>
+        <ol class="breakdown-list" id="teamBreakdownList"></ol>
       </div>
     </div>
   </section>

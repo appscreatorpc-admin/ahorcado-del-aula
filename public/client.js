@@ -3,11 +3,19 @@
 
   var LETTERS = 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ'.split('');
 
+  var REASON_LABELS = {
+    completed_letters: 'completó la palabra letra por letra',
+    guessed_word: 'adivinó la palabra completa de un tiro',
+    most_correct: 'tuvo más aciertos cuando se acabaron los intentos',
+    nobody: 'nadie acertó ninguna letra',
+  };
+
   var socket = io();
 
   var role = null; // 'host' | 'team'
   var myTeamId = null;
   var latestState = null;
+  var roundDrafts = []; // [{word, hint, maxAttempts}] — fuente de verdad del formulario inicial
 
   // ---------- Utilidades de pantalla ----------
 
@@ -111,7 +119,7 @@
       var slot = document.createElement('span');
       if (item.type === 'space') {
         slot.className = 'slot space';
-        slot.textContent = '  ';
+        slot.textContent = '  ';
       } else if (item.type === 'dash') {
         slot.className = 'slot space';
         slot.textContent = '-';
@@ -157,6 +165,108 @@
       .join('');
   }
 
+  function breakdownHtml(history) {
+    if (!history || !history.length) {
+      return '<li>Todavía no hay rondas registradas.</li>';
+    }
+    return history
+      .map(function (h) {
+        var who = h.winnerName
+          ? '<strong>' + escapeHtml(h.winnerName) + '</strong> ' + (REASON_LABELS[h.reason] || '')
+          : 'Nadie acertó ninguna letra';
+        var points = h.points > 0 ? '+' + h.points + ' pts' : '';
+        return (
+          '<li><div class="bd-top"><span class="bd-round">Ronda ' +
+          h.round +
+          '</span><span class="bd-points">' +
+          points +
+          '</span></div><div class="bd-word">' +
+          escapeHtml(h.word) +
+          '</div><div class="bd-reason">' +
+          who +
+          '</div></li>'
+        );
+      })
+      .join('');
+  }
+
+  // ---------- Formulario inicial: una tarjeta por ronda ----------
+
+  function resizeRoundDrafts(n) {
+    n = Math.min(Math.max(parseInt(n, 10) || 1, 1), 20);
+    while (roundDrafts.length < n) roundDrafts.push({ word: '', hint: '', maxAttempts: 6 });
+    roundDrafts.length = n;
+  }
+
+  function renderRoundCards() {
+    var container = document.getElementById('roundCardsContainer');
+    container.innerHTML = '';
+    roundDrafts.forEach(function (draft, idx) {
+      var card = document.createElement('div');
+      card.className = 'round-card';
+      card.innerHTML =
+        '<h3>Ronda ' + (idx + 1) + '</h3>' +
+        '<label>Palabra o frase secreta</label>' +
+        '<div class="masked-field">' +
+        '<input type="password" autocomplete="off" spellcheck="false" placeholder="Ej. FOTOSÍNTESIS" data-role="word" value="' +
+        escapeHtml(draft.word) +
+        '">' +
+        '<button type="button" data-role="toggle" aria-label="Mostrar u ocultar la palabra">👁️</button>' +
+        '</div>' +
+        '<label>Pista</label>' +
+        '<input type="text" autocomplete="off" placeholder="Ej. Proceso de las plantas" data-role="hint" value="' +
+        escapeHtml(draft.hint) +
+        '">' +
+        '<label>Dificultad</label>' +
+        '<select data-role="difficulty">' +
+        '<option value="8"' + (draft.maxAttempts === 8 ? ' selected' : '') + '>Fácil — 8 intentos</option>' +
+        '<option value="6"' + (draft.maxAttempts === 6 ? ' selected' : '') + '>Normal — 6 intentos</option>' +
+        '<option value="4"' + (draft.maxAttempts === 4 ? ' selected' : '') + '>Difícil — 4 intentos</option>' +
+        '</select>';
+
+      var wordInput = card.querySelector('[data-role="word"]');
+      var hintInput = card.querySelector('[data-role="hint"]');
+      var diffSelect = card.querySelector('[data-role="difficulty"]');
+      var toggleBtn = card.querySelector('[data-role="toggle"]');
+
+      wordInput.addEventListener('input', function () {
+        roundDrafts[idx].word = wordInput.value;
+      });
+      hintInput.addEventListener('input', function () {
+        roundDrafts[idx].hint = hintInput.value;
+      });
+      diffSelect.addEventListener('change', function () {
+        roundDrafts[idx].maxAttempts = parseInt(diffSelect.value, 10);
+      });
+      toggleBtn.addEventListener('click', function () {
+        var showing = wordInput.type === 'text';
+        wordInput.type = showing ? 'password' : 'text';
+        toggleBtn.textContent = showing ? '👁️' : '🙈';
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  resizeRoundDrafts(parseInt(document.getElementById('totalRounds').value, 10) || 3);
+  renderRoundCards();
+
+  document.getElementById('totalRounds').addEventListener('input', function (e) {
+    resizeRoundDrafts(e.target.value);
+    renderRoundCards();
+  });
+
+  function prefillLobbyForm(plan) {
+    var wordInput = document.getElementById('hostWordInput');
+    var hintInput = document.getElementById('hostHintInput');
+    var diffSelect = document.getElementById('hostDifficulty');
+    wordInput.value = plan ? plan.word || '' : '';
+    hintInput.value = plan ? plan.hint || '' : '';
+    diffSelect.value = plan && plan.maxAttempts ? String(plan.maxAttempts) : '6';
+    wordInput.type = 'password';
+    document.getElementById('hostToggleMask').textContent = '👁️';
+  }
+
   // ---------- Render principal según el estado del servidor ----------
 
   function render(state) {
@@ -189,20 +299,25 @@
       updateHangman(document.getElementById('hostHangmanSvg'), state.wrongCount);
 
       var banner = document.getElementById('hostStatusBanner');
-      if (state.buzzer) {
+      if (!state.buzzerOpen) {
+        banner.textContent = '🔒 Cerraste el timbre — nadie puede tocarlo todavía';
+        banner.className = 'status-banner closed';
+      } else if (state.buzzer) {
         banner.textContent = '⏱ ' + state.buzzer.teamName + ' tiene el turno para responder';
         banner.className = 'status-banner active';
       } else {
         banner.textContent = 'Esperando a que un equipo toque el timbre…';
         banner.className = 'status-banner';
       }
+
+      var gateBtn = document.getElementById('btnToggleBuzzerGate');
+      gateBtn.textContent = state.buzzerOpen ? 'Cerrar timbre' : 'Abrir timbre';
+      gateBtn.classList.toggle('active-gate', !state.buzzerOpen);
+
       renderTeamList(document.getElementById('hostPlayingTeamList'), state.teams, null);
     } else if (state.status === 'round_end') {
       showHostPanel('hostPanelRoundEnd');
-      var msg = state.roundWinnerName
-        ? '🎉 ¡' + state.roundWinnerName + ' ganó la ronda! La palabra era "' + state.revealedWord + '".'
-        : 'Se acabaron los intentos. La palabra era "' + state.revealedWord + '".';
-      document.getElementById('hostRoundEndMessage').textContent = msg;
+      document.getElementById('hostRoundEndMessage').textContent = roundEndMessage(state, null);
       var isLast = state.round >= state.totalRounds;
       document.getElementById('btnNextRound').textContent = isLast ? 'Ver marcador final' : 'Siguiente ronda';
       renderTeamList(document.getElementById('hostRoundEndTeamList'), state.teams, null);
@@ -216,7 +331,28 @@
           ? '🏆 ¡' + winners[0] + ' ganó el juego!'
           : '¡Juego terminado!';
       document.getElementById('hostFinalPodium').innerHTML = podiumHtml(state.teams);
+      document.getElementById('hostBreakdownList').innerHTML = breakdownHtml(state.roundsHistory);
     }
+  }
+
+  function roundEndMessage(state, myTeamName) {
+    var word = state.revealedWord;
+    if (!state.roundWinnerName) {
+      return 'Se acabaron los intentos y nadie acertó ninguna letra. La palabra era "' + word + '".';
+    }
+    var isMe = myTeamName && state.roundWinnerName === myTeamName;
+    var who = isMe ? 'Tu equipo' : state.roundWinnerName;
+    if (state.roundWinReason === 'most_correct') {
+      return (
+        '⏳ Se acabaron los intentos. ' +
+        who +
+        (isMe ? ' ganó' : ' ganó') +
+        ' la ronda por tener más aciertos. La palabra era "' +
+        word +
+        '".'
+      );
+    }
+    return '🎉 ¡' + who + (isMe ? ' acertó' : ' ganó') + ' la ronda! La palabra era "' + word + '".';
   }
 
   function renderTeam(state) {
@@ -245,40 +381,36 @@
       updateHangman(document.getElementById('teamHangmanSvg'), state.wrongCount);
 
       var iHaveTurn = state.buzzer && state.buzzer.teamId === myTeamId;
+      var gateClosed = state.buzzerOpen === false;
       var banner = document.getElementById('teamStatusBanner');
       var buzzBtn = document.getElementById('btnBuzz');
       var answerArea = document.getElementById('teamAnswerArea');
+      var gateMsg = document.getElementById('buzzerGateMsg');
 
-      if (state.buzzer) {
-        if (iHaveTurn) {
-          banner.textContent = '¡Es tu turno! Elige una letra o arriesga la palabra.';
-          banner.className = 'status-banner mine';
-        } else {
-          banner.textContent = state.buzzer.teamName + ' tiene el turno…';
-          banner.className = 'status-banner';
-        }
+      if (iHaveTurn) {
+        banner.textContent = '¡Es tu turno! Elige una letra o arriesga la palabra.';
+        banner.className = 'status-banner mine';
+      } else if (gateClosed) {
+        banner.textContent = 'El anfitrión cerró el timbre por ahora.';
+        banner.className = 'status-banner closed';
+      } else if (state.buzzer) {
+        banner.textContent = state.buzzer.teamName + ' tiene el turno…';
+        banner.className = 'status-banner';
       } else {
         banner.textContent = '¡Toca el timbre si sabes la respuesta!';
         banner.className = 'status-banner';
       }
 
-      buzzBtn.disabled = !!state.buzzer;
+      buzzBtn.disabled = !!state.buzzer || gateClosed;
       buzzBtn.hidden = iHaveTurn;
+      gateMsg.hidden = !gateClosed || iHaveTurn;
       answerArea.hidden = !iHaveTurn;
 
       if (iHaveTurn) buildTeamKeyboard(state);
       renderTeamList(document.getElementById('teamPlayingTeamList'), state.teams, myTeamId);
     } else if (state.status === 'round_end') {
       showTeamPanel('teamPanelRoundEnd');
-      var msg;
-      if (state.roundWinnerName && state.roundWinnerName === (myTeam && myTeam.name)) {
-        msg = '🎉 ¡Tu equipo acertó! La palabra era "' + state.revealedWord + '".';
-      } else if (state.roundWinnerName) {
-        msg = state.roundWinnerName + ' ganó esta ronda. La palabra era "' + state.revealedWord + '".';
-      } else {
-        msg = 'Se acabaron los intentos. La palabra era "' + state.revealedWord + '".';
-      }
-      document.getElementById('teamRoundEndMessage').textContent = msg;
+      document.getElementById('teamRoundEndMessage').textContent = roundEndMessage(state, myTeam && myTeam.name);
       renderTeamList(document.getElementById('teamRoundEndTeamList'), state.teams, myTeamId);
     } else if (state.status === 'game_end') {
       showTeamPanel('teamPanelGameEnd');
@@ -290,6 +422,7 @@
         ? 'Ganó ' + winners2.join(' y ') + '.'
         : '¡Juego terminado!';
       document.getElementById('teamFinalPodium').innerHTML = podiumHtml(state.teams);
+      document.getElementById('teamBreakdownList').innerHTML = breakdownHtml(state.roundsHistory);
     }
   }
 
@@ -307,7 +440,7 @@
       btn.type = 'button';
       btn.textContent = letter;
       var isCorrect = Object.keys(used).some(function (u) {
-        return u.normalize('NFD').replace(/[\u0300-\u036f]/g, '') === letter;
+        return u.normalize('NFD').replace(/[̀-ͯ]/g, '') === letter;
       });
       var isWrong = wrong.indexOf(letter) !== -1;
       if (isCorrect) {
@@ -348,14 +481,28 @@
   // ---------- Anfitrión ----------
 
   document.getElementById('btnCreateRoom').addEventListener('click', function () {
-    var rounds = parseInt(document.getElementById('totalRounds').value, 10) || 5;
-    socket.emit('host:createRoom', { totalRounds: rounds }, function (res) {
+    var errEl = document.getElementById('hostSetupError');
+    for (var i = 0; i < roundDrafts.length; i++) {
+      var lettersOnly = (roundDrafts[i].word || '').replace(/[^A-Za-zÀ-ÿÑñ]/g, '');
+      if (lettersOnly.length < 2) {
+        errEl.textContent = 'La ronda ' + (i + 1) + ' necesita una palabra de al menos 2 letras.';
+        return;
+      }
+      if (!(roundDrafts[i].hint || '').trim()) {
+        errEl.textContent = 'La ronda ' + (i + 1) + ' necesita una pista.';
+        return;
+      }
+    }
+    errEl.textContent = '';
+
+    socket.emit('host:createRoom', { rounds: roundDrafts }, function (res) {
       if (!res || !res.ok) {
-        document.getElementById('hostSetupError').textContent = (res && res.error) || 'No se pudo crear la sala.';
+        errEl.textContent = (res && res.error) || 'No se pudo crear la sala.';
         return;
       }
       saveLocal('ahorcado_host', { roomCode: res.roomCode, hostToken: res.hostToken });
       role = 'host';
+      prefillLobbyForm(res.nextRoundPlan);
       showScreen('screen-host-play');
     });
   });
@@ -379,15 +526,15 @@
         return;
       }
       errEl.textContent = '';
-      document.getElementById('hostWordInput').value = '';
-      document.getElementById('hostHintInput').value = '';
-      document.getElementById('hostWordInput').type = 'password';
-      document.getElementById('hostToggleMask').textContent = '👁️';
     });
   });
 
   document.getElementById('btnReleaseBuzzer').addEventListener('click', function () {
     socket.emit('host:releaseBuzzer', {});
+  });
+  document.getElementById('btnToggleBuzzerGate').addEventListener('click', function () {
+    var open = !(latestState && latestState.buzzerOpen);
+    socket.emit('host:setBuzzerOpen', { open: open });
   });
   document.getElementById('btnEndGameFromPlay').addEventListener('click', function () {
     if (confirm('¿Terminar el juego y mostrar el marcador final?')) socket.emit('host:endGame', {});
@@ -396,7 +543,9 @@
     socket.emit('host:endGame', {});
   });
   document.getElementById('btnNextRound').addEventListener('click', function () {
-    socket.emit('host:nextRound', {});
+    socket.emit('host:nextRound', {}, function (res) {
+      if (res && res.ok && !res.gameEnded) prefillLobbyForm(res.nextRoundPlan);
+    });
   });
 
   // ---------- Equipos ----------
@@ -413,10 +562,8 @@
       errEl.textContent = 'Escribe el nombre de tu equipo.';
       return;
     }
-    var stored = loadLocal('ahorcado_team');
-    var existingId = stored && stored.roomCode === code ? stored.teamId : undefined;
 
-    socket.emit('team:join', { roomCode: code, teamName: name, teamId: existingId }, function (res) {
+    socket.emit('team:join', { roomCode: code, teamName: name }, function (res) {
       if (!res || !res.ok) {
         errEl.textContent = (res && res.error) || 'No se pudo unir a la sala.';
         return;
@@ -424,7 +571,7 @@
       errEl.textContent = '';
       myTeamId = res.teamId;
       role = 'team';
-      saveLocal('ahorcado_team', { roomCode: res.roomCode, teamId: res.teamId, teamName: res.teamName });
+      saveLocal('ahorcado_team', { roomCode: res.roomCode, teamName: res.teamName });
       document.getElementById('teamNameHeader').textContent = res.teamName;
       showScreen('screen-team-play');
     });
@@ -459,15 +606,16 @@
       socket.emit('host:rejoinRoom', hostSession, function (res) {
         if (res && res.ok) {
           role = 'host';
+          if (res.nextRoundPlan) prefillLobbyForm(res.nextRoundPlan);
           showScreen('screen-host-play');
         } else {
           clearLocal('ahorcado_host');
         }
       });
-    } else if (teamSession && teamSession.roomCode && teamSession.teamId) {
+    } else if (teamSession && teamSession.roomCode && teamSession.teamName) {
       socket.emit(
         'team:join',
-        { roomCode: teamSession.roomCode, teamName: teamSession.teamName, teamId: teamSession.teamId },
+        { roomCode: teamSession.roomCode, teamName: teamSession.teamName },
         function (res) {
           if (res && res.ok) {
             role = 'team';
